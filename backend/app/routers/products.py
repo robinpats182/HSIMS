@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from app.database import get_db
 from app import schemas
 from app.models import ProductRecipe, MaterialDefinition, ProductDefinition, ProductLog, MaterialLot
 from app.schemas import CreateRecipeRequest, RecipeRequirementReport
-from app.crud import products as crud
+from app.crud import products as crud   
+from app.crud import production as production_crud
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -73,74 +73,47 @@ def calculate_required_materials(product_code: str, build_quantity: float, db: S
 
 @router.post("/log/", status_code=status.HTTP_201_CREATED)
 def add_product_quantity(log_data: schemas.ProductLogCreate, db: Session = Depends(get_db)):
-    """Logs product creation and automatically calculates and deducts raw materials from warehouse inventory."""
-    # 1. Verify the product exists in the master catalog
-    product = db.query(ProductDefinition).filter(ProductDefinition.product_code == log_data.product_code).first()
-    if not product:
+    """Logs product creation and deducts materials from production line stock using FIFO (smallest lot number first)."""
+    # 1. Verify product exists
+    if not crud.get_product_by_code(db, log_data.product_code):
         raise HTTPException(status_code=404, detail="Product blueprint code not found")
 
-    # 2. Check if a manufacturing recipe exists for this product
-    recipe_items = db.query(ProductRecipe).filter(ProductRecipe.product_code == log_data.product_code).all()
+    # 2. Fetch product recipe
+    recipe_items = crud.get_product_recipe(db, log_data.product_code)
     if not recipe_items:
         raise HTTPException(
             status_code=400, 
             detail=f"Cannot log production. No recipe rule configured for product '{log_data.product_code}'."
         )
 
-    # 3. FIRST PASS: Check if you have enough warehouse inventory before deducting anything
+    # 3. PASS 1: Check total line stock across all lots
     for item in recipe_items:
-        total_material_needed = item.required_quantity * log_data.quantity
-        
-        # Calculate total available stock across all lots for this material
-        total_available_stock = db.query(func.sum(MaterialLot.quantity)).filter(
-            MaterialLot.material_number == item.material_number
-        ).scalar() or 0.0
+        total_needed = item.required_quantity * log_data.quantity
+        available_qty = crud.get_total_production_material_quantity(db, item.material_number)
 
-        if total_available_stock < total_material_needed:
+        if available_qty < total_needed:
             raise HTTPException(
                 status_code=400,
-                detail=f"Incomplete Inventory. Need {total_material_needed} of material '{item.material_number}', but only {total_available_stock} exists in stock."
+                detail=(
+                    f"Incomplete Inventory. Need {total_needed} of material '{item.material_number}', "
+                    f"but only {available_qty} is available on the production line."
+                )
             )
 
-    # 4. SECOND PASS: Deduct raw materials from stock (FIFO style: oldest lots first)
+    # 4. PASS 2: Deduct materials using FIFO (smallest lot_number first)
     for item in recipe_items:
-        remaining_to_deduct = item.required_quantity * log_data.quantity
-        
-        # Fetch available lots for this material, ordered by id (oldest tracking rows first)
-        active_lots = db.query(MaterialLot).filter(
-            MaterialLot.material_number == item.material_number,
-            MaterialLot.quantity > 0
-        ).order_by(MaterialLot.id.asc()).all()
+        total_needed = item.required_quantity * log_data.quantity
+        crud.deduct_production_materials_fifo(db, item.material_number, total_needed)
 
-        for lot in active_lots:
-            if remaining_to_deduct <= 0:
-                break
-                
-            if lot.quantity >= remaining_to_deduct:
-                # This lot has enough to fulfill the remaining balance completely
-                lot.quantity -= remaining_to_deduct
-                remaining_to_deduct = 0
-            else:
-                # Empty this lot out entirely and move to the next one
-                remaining_to_deduct -= lot.quantity
-                lot.quantity = 0.0
-
-    # 5. Record the final production entry into the product transaction ledger
-    new_log = ProductLog(
-        product_code=log_data.product_code,
-        date=log_data.date,
-        quantity=log_data.quantity
-    )
-    db.add(new_log)
-    
-    # Commit all inventory deductions and the product log entry together as a safe single action
+    # 5. Create product log entry and commit atomic transaction
+    new_log = crud.create_product_log(db, log_data)
     db.commit()
     db.refresh(new_log)
-    
+
     return {
         "status": "Success",
         "message": f"Logged {log_data.quantity} units of {log_data.product_code}.",
-        "inventory": "Required raw materials calculated and deducted from warehouse storage."
+        "inventory": "Required raw materials deducted from production line using FIFO (smallest lot number first)."
     }
 
 @router.get("/ledger/", response_model=list[schemas.ProductLedgerReport])

@@ -10,6 +10,8 @@ class MaterialDefinition(Base):
     id = Column(Integer, primary_key=True, index=True)
     material_number = Column(String, unique=True, index=True, nullable=False)
     material_name = Column(String, index=True, nullable=False)
+    part_no = Column(String, index=True, nullable=True)
+    type = Column(String, index=True, nullable=True)  # Optional type/category  
     unit = Column(String, default="pcs", nullable=False)
 
     # Establish relationship to inventory lots
@@ -22,6 +24,7 @@ class MaterialLot(Base):
     id = Column(Integer, primary_key=True, index=True)
     material_number = Column(String, ForeignKey("material_definitions.material_number", onupdate="CASCADE"), nullable=False)
     lotno = Column(String, index=True, nullable=False)
+    type = Column(String, index=True, nullable=True)  # Optional type/category
     quantity = Column(Float, default=0.0, nullable=False)
 
     # Relationship back to master item info
@@ -36,6 +39,7 @@ class ProductDefinition(Base):
     product_code = Column(String, unique=True, index=True, nullable=False)
     product_name = Column(String, index=True, nullable=False)
     part_number = Column(String, index=True, nullable=True)  # Optional ("for some")
+    type = Column(String, index=True, nullable=True)  # Optional type/category
     customers = Column(ARRAY(String), nullable=False)        # Stores list of customer names
 
     # Connects to tracking history
@@ -69,3 +73,19 @@ class ProductRecipe(Base):
     # Establish relationships for easy data lookup
     product = relationship("ProductDefinition")
     material = relationship("MaterialDefinition")
+
+class ProductionMaterial(Base):
+    __tablename__ = "production_line_materials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    lot_number = Column(String, nullable=False)
+    # lot_number = Column(String, ForeignKey("material_lots.lotno"), nullable=False)
+    material_number = Column(String,ForeignKey("material_definitions.material_number"), nullable=False)
+    quantity = Column(Float, default=0.0)
+    material = relationship("MaterialDefinition")
+    lot = relationship(
+        "MaterialLot",
+        primaryjoin="ProductionMaterial.lot_number == MaterialLot.lotno",
+        foreign_keys=[lot_number],
+        uselist=False  # Set to True if multiple lots can share the lotno string
+    )

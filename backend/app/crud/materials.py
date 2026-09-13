@@ -13,10 +13,18 @@ def get_all_catalog_items(db: Session):
 def get_catalog_by_name(db: Session, material_name: str):
     return db.query(MaterialDefinition).filter(MaterialDefinition.material_name == material_name).first()
 
+def get_catalog_by_part_no(db: Session, part_no: str):
+    return db.query(MaterialDefinition).filter(MaterialDefinition.part_no == part_no).first()
+
+def get_catalog_by_type(db: Session, type: str):
+    return db.query(MaterialDefinition).filter(MaterialDefinition.type == type.upper()).all()
+
 def create_catalog_item(db: Session, item: CatalogCreate):
     db_item = MaterialDefinition(
         material_number=item.material_number,
         material_name=item.material_name,
+        part_no=item.part_no,
+        type=item.type.upper() if item.type else None,
         unit=item.unit.lower()
     )
     db.add(db_item)
@@ -27,6 +35,8 @@ def create_catalog_item(db: Session, item: CatalogCreate):
 def update_catalog_item(db: Session, db_item: MaterialDefinition, updates: CatalogUpdate):
     if updates.material_name is not None:
         db_item.material_name = updates.material_name
+    if updates.type is not None:
+        db_item.type = updates.type.upper()
     if updates.unit is not None:
         db_item.unit = updates.unit.lower()
     db.commit()

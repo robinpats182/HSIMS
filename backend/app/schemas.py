@@ -1,19 +1,36 @@
 import datetime
-from pydantic import BaseModel, Field
-from typing import Literal
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Optional
 
 # --- CATALOG SCHEMAS ---
 class CatalogBase(BaseModel):
     material_number: str = Field(..., min_length=1, description="Unique material identifier")
     material_name: str = Field(..., min_length=1, description="Descriptive name")
-    unit: Literal["pcs", "g", "kg", "ml"] = "pcs"
+    part_no: str | None = Field(None, description="Optional internal/customer part number")
+    type: Optional[Literal["LHS", "RHS", "CCW", "CW"]] = None
+    @field_validator("type", mode="before")
+    @classmethod
+    def uppercase_type(cls, value: str):
+        if isinstance(value, str):
+            return value.upper()  # Forces incoming text (like "lhs" or "Lhs") to "LHS"
+        return value
+    
+    unit: Literal["pcs", "g", "kg"] = "pcs"
 
 class CatalogCreate(CatalogBase):
     pass
 
 class CatalogUpdate(BaseModel):
     material_name: str | None = None
-    unit: Literal["pcs", "g", "kg", "ml"] | None = None
+    part_no: str | None = None
+    type: Optional[Literal["LHS", "RHS", "CCW", "CW"]] = None
+    @field_validator("type", mode="before")
+    @classmethod
+    def uppercase_type(cls, value: str):
+        if isinstance(value, str):
+            return value.upper()  # Forces incoming text (like "lhs" or "Lhs") to "LHS"
+        return value
+    unit: Literal["pcs", "g", "kg"] | None = None
 
 class CatalogResponse(CatalogBase):
     id: int
@@ -90,3 +107,32 @@ class RecipeRequirementReport(BaseModel):
     unit: str
     quantity_needed_per_unit: float
     total_quantity_needed: float
+
+# --- Production Line ---
+class ProductionMaterialCreate(BaseModel):
+    material_number: str
+    lot_number: str
+    quantity: float
+
+
+class ProductionMaterialUpdate(BaseModel):
+    quantity: float
+
+
+class ProductionMaterialResponse(BaseModel):
+    id: int
+    material_number: str
+    material_name: str
+    lot_number: str
+    quantity: float
+    unit: str
+
+    class Config:
+        from_attributes = True
+
+class ProductionStockReport(BaseModel):
+    material_number: str
+    material_name: str
+    lot_number: str
+    quantity: float
+    unit: str
