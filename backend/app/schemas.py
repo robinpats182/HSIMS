@@ -7,7 +7,7 @@ class CatalogBase(BaseModel):
     material_number: str = Field(..., min_length=1, description="Unique material identifier")
     material_name: str = Field(..., min_length=1, description="Descriptive name")
     part_no: str | None = Field(None, description="Optional internal/customer part number")
-    type: Optional[Literal["LHS", "RHS", "CCW", "CW"]] = None
+    type: Optional[Literal["LHD", "RHD", "CCW", "CW"]] = None
     @field_validator("type", mode="before")
     @classmethod
     def uppercase_type(cls, value: str):
@@ -23,7 +23,7 @@ class CatalogCreate(CatalogBase):
 class CatalogUpdate(BaseModel):
     material_name: str | None = None
     part_no: str | None = None
-    type: Optional[Literal["LHS", "RHS", "CCW", "CW"]] = None
+    type: Optional[Literal["LHD", "RHD", "CCW", "CW"]] = None
     @field_validator("type", mode="before")
     @classmethod
     def uppercase_type(cls, value: str):
